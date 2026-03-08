@@ -31,7 +31,7 @@ usage() {
     cat <<'EOF'
 Usage: manual_fuse_permissions.sh
 
-Automates the Linux FUSE permission checks discussed in session-ses_3323.md.
+Automates the Linux FUSE permission checks for SlayerFS.
 
 Environment variables:
   SLAYERFS_PROFILE   Build profile to use: debug (default) or release
@@ -352,7 +352,7 @@ main() {
     build_binary_if_needed
     start_mount
 
-    log_info "Running FUSE permission checks from session-ses_3323.md"
+    log_info "Running SlayerFS Linux FUSE permission checks"
 
     umask 022
     touch "$mount_dir/default_file"
