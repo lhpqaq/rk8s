@@ -1888,6 +1888,26 @@ where
         Ok(attr)
     }
 
+    /// Change the permission bits of an inode (chmod).
+    ///
+    /// `new_mode` is masked to `0o777` — setuid, setgid, and sticky bits are
+    /// stripped because SlayerFS does not implement those semantics.
+    /// Returns `VfsError::NotFound` when the inode does not exist.
+    #[tracing::instrument(level = "trace", skip(self), fields(ino, new_mode))]
+    pub async fn chmod(&self, ino: i64, new_mode: u32) -> Result<FileAttr, VfsError> {
+        let attr = self
+            .core
+            .meta_layer
+            .chmod(ino, new_mode)
+            .await
+            .map_err(VfsError::from)?;
+
+        self.state.modified.touch(ino).await;
+        self.state.handles.update_attr_for_inode(ino, &attr);
+
+        Ok(attr)
+    }
+
     /// Read data by file handle and offset.
     #[tracing::instrument(
         name = "VFS.read",

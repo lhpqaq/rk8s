@@ -199,6 +199,19 @@ pub trait MetaLayer: Send + Sync {
         flags: SetAttrFlags,
     ) -> Result<FileAttr, MetaError>;
 
+    /// Update only the permission bits of an inode (chmod).
+    ///
+    /// The mode is masked to `0o777`; setuid/setgid/sticky bits are stripped.
+    /// Returns updated [`FileAttr`] or `MetaError::NotFound`.
+    async fn chmod(&self, ino: i64, new_mode: u32) -> Result<FileAttr, MetaError> {
+        let sanitized = new_mode & 0o777;
+        let req = SetAttrRequest {
+            mode: Some(sanitized),
+            ..Default::default()
+        };
+        self.set_attr(ino, &req, SetAttrFlags::empty()).await
+    }
+
     async fn open(&self, ino: i64, flags: OpenFlags) -> Result<FileAttr, MetaError>;
 
     async fn close(&self, ino: i64) -> Result<(), MetaError>;

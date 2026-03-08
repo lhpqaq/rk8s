@@ -3851,4 +3851,82 @@ mod tests {
         assert_eq!(lock_info.lock_type, FileLockType::Write);
         assert_eq!(lock_info.pid, 5555);
     }
+
+    // -------------------------------------------------------------------
+    // Permission / chmod tests
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_file_default_mode() {
+        let store = new_test_store().await;
+        let parent = store.root_ino();
+        let ino = store
+            .create_file(parent, "perm_file.txt".to_string())
+            .await
+            .unwrap();
+
+        let attr = store.stat(ino).await.unwrap().unwrap();
+        // Default file mode: permission bits should be 0o644.
+        assert_eq!(
+            attr.mode & 0o777,
+            0o644,
+            "newly created file should have default permission 0644"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_directory_default_mode() {
+        let store = new_test_store().await;
+        let parent = store.root_ino();
+        let ino = store.mkdir(parent, "perm_dir".to_string()).await.unwrap();
+
+        let attr = store.stat(ino).await.unwrap().unwrap();
+        assert_eq!(
+            attr.mode & 0o777,
+            0o755,
+            "newly created directory should have default permission 0755"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_chmod_updates_mode() {
+        let store = new_test_store().await;
+        let parent = store.root_ino();
+        let ino = store
+            .create_file(parent, "chmod_test.txt".to_string())
+            .await
+            .unwrap();
+
+        let attr = store.chmod(ino, 0o755).await.unwrap();
+        assert_eq!(attr.mode & 0o777, 0o755);
+
+        // Verify via stat
+        let stat = store.stat(ino).await.unwrap().unwrap();
+        assert_eq!(stat.mode & 0o777, 0o755);
+    }
+
+    #[tokio::test]
+    async fn test_chmod_strips_special_bits() {
+        let store = new_test_store().await;
+        let parent = store.root_ino();
+        let ino = store
+            .create_file(parent, "special_bits.txt".to_string())
+            .await
+            .unwrap();
+
+        // MetaStore::chmod strips setuid/setgid/sticky (masks to 0o777).
+        let attr = store.chmod(ino, 0o7755).await.unwrap();
+        assert_eq!(
+            attr.mode & 0o7777,
+            0o755,
+            "setuid/setgid/sticky should be stripped"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_chmod_nonexistent_inode() {
+        let store = new_test_store().await;
+        let result = store.chmod(999999, 0o644).await;
+        assert!(result.is_err(), "chmod on nonexistent inode should fail");
+    }
 }
