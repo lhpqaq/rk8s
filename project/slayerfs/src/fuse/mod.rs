@@ -375,6 +375,7 @@ where
 
         // TODO: chown (uid/gid changes) is not implemented — return ENOSYS.
         if set_attr.uid.is_some() || set_attr.gid.is_some() {
+            debug!(ino, uid = ?set_attr.uid, gid = ?set_attr.gid, "fuse.setattr: chown not supported, returning ENOSYS");
             return Err(Errno::from(libc::ENOSYS));
         }
 
