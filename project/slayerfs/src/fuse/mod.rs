@@ -359,8 +359,11 @@ where
         })
     }
 
-    // Set attributes: delegate to metadata layer for mode/uid/gid/size/timestamps.
+    // Set attributes: delegate to metadata layer for mode/size/timestamps.
     // Permission checks are handled by the kernel (via default_permissions mount option).
+    //
+    // Security: setuid/setgid/sticky bits are stripped from mode changes;
+    // chown (uid/gid) is not supported and returns ENOSYS.
     async fn setattr(
         &self,
         req: Request,
@@ -369,6 +372,12 @@ where
         set_attr: SetAttr,
     ) -> FuseResult<ReplyAttr> {
         debug!(unique = req.unique, ino, set_attr = ?set_attr, "fuse.setattr");
+
+        // TODO: chown (uid/gid changes) is not implemented — return ENOSYS.
+        if set_attr.uid.is_some() || set_attr.gid.is_some() {
+            return Err(Errno::from(libc::ENOSYS));
+        }
+
         let (meta_req, meta_flags) = fuse_setattr_to_meta(&set_attr);
 
         // If no attributes to set, just return current attributes
@@ -1492,14 +1501,12 @@ fn fuse_setattr_to_meta(set_attr: &SetAttr) -> (SetAttrRequest, SetAttrFlags) {
     let mut req = SetAttrRequest::default();
     let flags = SetAttrFlags::empty();
     if let Some(mode) = set_attr.mode {
-        req.mode = Some(mode);
+        // Strip setuid (0o4000), setgid (0o2000), and sticky (0o1000) bits.
+        // SlayerFS does not implement the semantics behind these special bits.
+        req.mode = Some(mode & 0o777);
     }
-    if let Some(uid) = set_attr.uid {
-        req.uid = Some(uid);
-    }
-    if let Some(gid) = set_attr.gid {
-        req.gid = Some(gid);
-    }
+    // NOTE: uid/gid (chown) is rejected at the FUSE setattr entry point with
+    // ENOSYS, so we intentionally skip set_attr.uid / set_attr.gid here.
     if let Some(size) = set_attr.size {
         req.size = Some(size);
     }

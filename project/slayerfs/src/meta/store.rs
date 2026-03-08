@@ -535,6 +535,24 @@ pub trait MetaStore: Send + Sync {
         Err(MetaError::NotImplemented)
     }
 
+    /// Update only the permission bits of an inode.
+    ///
+    /// `new_mode` is masked to `0o777` before persistence — setuid (0o4000),
+    /// setgid (0o2000), and sticky (0o1000) bits are **intentionally stripped**
+    /// because SlayerFS does not implement the associated semantics.
+    ///
+    /// Returns the updated [`FileAttr`] on success, or `MetaError::NotFound`
+    /// if the inode does not exist.
+    async fn chmod(&self, ino: i64, new_mode: u32) -> Result<FileAttr, MetaError> {
+        // Strip setuid/setgid/sticky — only keep standard rwxrwxrwx bits.
+        let sanitized = new_mode & 0o777;
+        let req = SetAttrRequest {
+            mode: Some(sanitized),
+            ..Default::default()
+        };
+        self.set_attr(ino, &req, SetAttrFlags::empty()).await
+    }
+
     async fn open(&self, ino: i64, flags: OpenFlags) -> Result<FileAttr, MetaError> {
         let _ = (ino, flags);
         Err(MetaError::NotImplemented)
