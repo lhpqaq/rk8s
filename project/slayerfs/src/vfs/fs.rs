@@ -1908,6 +1908,30 @@ where
         Ok(attr)
     }
 
+    /// Change the owner and/or group of an inode (chown).
+    ///
+    /// Either `uid` or `gid` may be `None` to leave that field unchanged.
+    /// Returns `VfsError::NotFound` when the inode does not exist.
+    #[tracing::instrument(level = "trace", skip(self), fields(ino, ?uid, ?gid))]
+    pub async fn chown(
+        &self,
+        ino: i64,
+        uid: Option<u32>,
+        gid: Option<u32>,
+    ) -> Result<FileAttr, VfsError> {
+        let attr = self
+            .core
+            .meta_layer
+            .chown(ino, uid, gid)
+            .await
+            .map_err(VfsError::from)?;
+
+        self.state.modified.touch(ino).await;
+        self.state.handles.update_attr_for_inode(ino, &attr);
+
+        Ok(attr)
+    }
+
     /// Read data by file handle and offset.
     #[tracing::instrument(
         name = "VFS.read",
