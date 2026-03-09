@@ -33,11 +33,12 @@ layer.
 - **Files** are created with mode `0o100644` (`-rw-r--r--`).
 - **Directories** are created with mode `0o040755` (`drwxr-xr-x`).
 
-When files or directories are created through the FUSE layer (e.g., via
-`mkdir` or `create`), the kernel-provided `mode` and `umask` are applied:
+When files or directories are created through the FUSE layer, SlayerFS strips
+unsupported special bits and then applies `umask` to the persisted
+`rwxrwxrwx` permission bits:
 
 ```
-effective_mode = (mode & 0o7777) & !(umask & 0o777)
+effective_mode = (mode & 0o777) & !(umask & 0o777)
 ```
 
 ## chmod Behavior
