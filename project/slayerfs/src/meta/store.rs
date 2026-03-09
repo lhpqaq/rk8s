@@ -71,6 +71,17 @@ pub fn chmod_request(new_mode: u32) -> SetAttrRequest {
     }
 }
 
+/// Builds a `SetAttrRequest` for chown-style updates.
+///
+/// Either `uid` or `gid` may be `None` to leave it unchanged.
+pub fn chown_request(uid: Option<u32>, gid: Option<u32>) -> SetAttrRequest {
+    SetAttrRequest {
+        uid,
+        gid,
+        ..Default::default()
+    }
+}
+
 bitflags::bitflags! {
     /// Additional flags that control set-attribute semantics.
     #[allow(dead_code)]
@@ -556,6 +567,21 @@ pub trait MetaStore: Send + Sync {
     /// if the inode does not exist.
     async fn chmod(&self, ino: i64, new_mode: u32) -> Result<FileAttr, MetaError> {
         let req = chmod_request(new_mode);
+        self.set_attr(ino, &req, SetAttrFlags::empty()).await
+    }
+
+    /// Change the owner and/or group of an inode.
+    ///
+    /// Either `uid` or `gid` may be `None` to leave that field unchanged.
+    /// Returns the updated [`FileAttr`] on success, or `MetaError::NotFound`
+    /// if the inode does not exist.
+    async fn chown(
+        &self,
+        ino: i64,
+        uid: Option<u32>,
+        gid: Option<u32>,
+    ) -> Result<FileAttr, MetaError> {
+        let req = chown_request(uid, gid);
         self.set_attr(ino, &req, SetAttrFlags::empty()).await
     }
 

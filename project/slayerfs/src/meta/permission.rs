@@ -271,4 +271,21 @@ mod tests {
         // setuid bit is kept by Permission::chmod itself.
         assert_eq!(perm.mode & 0o7777, 0o4755);
     }
+
+    #[test]
+    fn test_chown_updates_uid_and_gid() {
+        let mut perm = Permission::default_file(0, 0);
+        perm.chown(1000, 2000);
+        assert_eq!(perm.uid, 1000);
+        assert_eq!(perm.gid, 2000);
+    }
+
+    #[test]
+    fn test_chown_preserves_mode() {
+        let mut perm = Permission::default_file(0, 0);
+        perm.chmod(0o755);
+        perm.chown(1000, 2000);
+        assert_eq!(perm.permission_bits(), 0o755, "chown must not alter mode");
+        assert!(perm.is_regular_file(), "chown must not alter file type");
+    }
 }

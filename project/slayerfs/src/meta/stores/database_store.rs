@@ -3929,4 +3929,107 @@ mod tests {
         let result = store.chmod(999999, 0o644).await;
         assert!(result.is_err(), "chmod on nonexistent inode should fail");
     }
+
+    // -------------------------------------------------------------------
+    // chown tests
+    // -------------------------------------------------------------------
+
+    #[tokio::test]
+    async fn test_chown_updates_uid_and_gid() {
+        let store = new_test_store().await;
+        let parent = store.root_ino();
+        let ino = store
+            .create_file(parent, "chown_test.txt".to_string())
+            .await
+            .unwrap();
+
+        let attr = store.chown(ino, Some(1000), Some(1000)).await.unwrap();
+        assert_eq!(attr.uid, 1000);
+        assert_eq!(attr.gid, 1000);
+
+        // Verify via stat
+        let stat = store.stat(ino).await.unwrap().unwrap();
+        assert_eq!(stat.uid, 1000);
+        assert_eq!(stat.gid, 1000);
+    }
+
+    #[tokio::test]
+    async fn test_chown_uid_only() {
+        let store = new_test_store().await;
+        let parent = store.root_ino();
+        let ino = store
+            .create_file(parent, "chown_uid.txt".to_string())
+            .await
+            .unwrap();
+
+        let before = store.stat(ino).await.unwrap().unwrap();
+        let original_gid = before.gid;
+
+        let attr = store.chown(ino, Some(2000), None).await.unwrap();
+        assert_eq!(attr.uid, 2000);
+        assert_eq!(attr.gid, original_gid, "gid should remain unchanged");
+    }
+
+    #[tokio::test]
+    async fn test_chown_gid_only() {
+        let store = new_test_store().await;
+        let parent = store.root_ino();
+        let ino = store
+            .create_file(parent, "chown_gid.txt".to_string())
+            .await
+            .unwrap();
+
+        let before = store.stat(ino).await.unwrap().unwrap();
+        let original_uid = before.uid;
+
+        let attr = store.chown(ino, None, Some(3000)).await.unwrap();
+        assert_eq!(attr.uid, original_uid, "uid should remain unchanged");
+        assert_eq!(attr.gid, 3000);
+    }
+
+    #[tokio::test]
+    async fn test_chown_preserves_mode() {
+        let store = new_test_store().await;
+        let parent = store.root_ino();
+        let ino = store
+            .create_file(parent, "chown_mode.txt".to_string())
+            .await
+            .unwrap();
+
+        // Change mode first
+        store.chmod(ino, 0o755).await.unwrap();
+
+        // Then change owner
+        let attr = store.chown(ino, Some(1000), Some(1000)).await.unwrap();
+        assert_eq!(
+            attr.mode & 0o777,
+            0o755,
+            "chown should not alter permission bits"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_chown_nonexistent_inode() {
+        let store = new_test_store().await;
+        let result = store.chown(999999, Some(1000), Some(1000)).await;
+        assert!(result.is_err(), "chown on nonexistent inode should fail");
+    }
+
+    #[tokio::test]
+    async fn test_chown_directory() {
+        let store = new_test_store().await;
+        let parent = store.root_ino();
+        let ino = store
+            .mkdir(parent, "chown_dir".to_string())
+            .await
+            .unwrap();
+
+        let attr = store.chown(ino, Some(500), Some(500)).await.unwrap();
+        assert_eq!(attr.uid, 500);
+        assert_eq!(attr.gid, 500);
+
+        let stat = store.stat(ino).await.unwrap().unwrap();
+        assert_eq!(stat.uid, 500);
+        assert_eq!(stat.gid, 500);
+    }
 }
