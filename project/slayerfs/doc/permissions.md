@@ -36,7 +36,7 @@ When files or directories are created through the FUSE layer (e.g., via
 `mkdir` or `create`), the kernel-provided `mode` and `umask` are applied:
 
 ```
-effective_mode = (mode & 0o7777) & !(umask & 0o777)
+effective_mode = (mode & 0o777) & !(umask & 0o777)
 ```
 
 ## chmod Behavior

@@ -5,7 +5,7 @@ use crate::meta::client::session::SessionInfo;
 use crate::meta::file_lock::{FileLockInfo, FileLockQuery, FileLockRange, FileLockType};
 use crate::meta::store::{
     AclRule, DirEntry, FileAttr, FileType, MetaError, OpenFlags, SetAttrFlags, SetAttrRequest,
-    StatFsSnapshot,
+    StatFsSnapshot, chmod_request,
 };
 use crate::vfs::handles::DirHandle;
 
@@ -204,11 +204,7 @@ pub trait MetaLayer: Send + Sync {
     /// The mode is masked to `0o777`; setuid/setgid/sticky bits are stripped.
     /// Returns updated [`FileAttr`] or `MetaError::NotFound`.
     async fn chmod(&self, ino: i64, new_mode: u32) -> Result<FileAttr, MetaError> {
-        let sanitized = new_mode & 0o777;
-        let req = SetAttrRequest {
-            mode: Some(sanitized),
-            ..Default::default()
-        };
+        let req = chmod_request(new_mode);
         self.set_attr(ino, &req, SetAttrFlags::empty()).await
     }
 
