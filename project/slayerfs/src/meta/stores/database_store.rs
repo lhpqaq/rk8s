@@ -4011,10 +4011,7 @@ mod tests {
     async fn test_chown_directory() {
         let store = new_test_store().await;
         let parent = store.root_ino();
-        let ino = store
-            .mkdir(parent, "chown_dir".to_string())
-            .await
-            .unwrap();
+        let ino = store.mkdir(parent, "chown_dir".to_string()).await.unwrap();
 
         let attr = store.chown(ino, Some(500), Some(500)).await.unwrap();
         assert_eq!(attr.uid, 500);

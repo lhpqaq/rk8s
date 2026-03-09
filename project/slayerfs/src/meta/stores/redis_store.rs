@@ -3810,7 +3810,10 @@ mod tests {
             mode: Some(0o4755),
             ..Default::default()
         };
-        let attr = store.set_attr(ino, &req, SetAttrFlags::empty()).await.unwrap();
+        let attr = store
+            .set_attr(ino, &req, SetAttrFlags::empty())
+            .await
+            .unwrap();
         assert_eq!(attr.mode & 0o7777, 0o755);
 
         let stat = store.stat(ino).await.unwrap().unwrap();

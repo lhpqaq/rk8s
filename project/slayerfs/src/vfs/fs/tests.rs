@@ -1056,10 +1056,7 @@ mod permission_tests {
             gid: Some(5678),
             ..Default::default()
         };
-        let attr = fs
-            .set_attr(ino, &req, SetAttrFlags::empty())
-            .await
-            .unwrap();
+        let attr = fs.set_attr(ino, &req, SetAttrFlags::empty()).await.unwrap();
         assert_eq!(attr.uid, 1234);
         assert_eq!(attr.gid, 5678);
 
