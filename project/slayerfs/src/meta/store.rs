@@ -60,6 +60,17 @@ pub struct SetAttrRequest {
     pub flags: Option<u32>,
 }
 
+/// Builds a `SetAttrRequest` for chmod-style updates.
+///
+/// SlayerFS currently supports only the standard `rwxrwxrwx` permission bits.
+/// setuid, setgid, and sticky bits are stripped before persistence.
+pub fn chmod_request(new_mode: u32) -> SetAttrRequest {
+    SetAttrRequest {
+        mode: Some(new_mode & 0o777),
+        ..Default::default()
+    }
+}
+
 bitflags::bitflags! {
     /// Additional flags that control set-attribute semantics.
     #[allow(dead_code)]
@@ -544,12 +555,7 @@ pub trait MetaStore: Send + Sync {
     /// Returns the updated [`FileAttr`] on success, or `MetaError::NotFound`
     /// if the inode does not exist.
     async fn chmod(&self, ino: i64, new_mode: u32) -> Result<FileAttr, MetaError> {
-        // Strip setuid/setgid/sticky — only keep standard rwxrwxrwx bits.
-        let sanitized = new_mode & 0o777;
-        let req = SetAttrRequest {
-            mode: Some(sanitized),
-            ..Default::default()
-        };
+        let req = chmod_request(new_mode);
         self.set_attr(ino, &req, SetAttrFlags::empty()).await
     }
 

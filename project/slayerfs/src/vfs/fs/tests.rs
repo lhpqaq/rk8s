@@ -852,7 +852,11 @@ mod permission_tests {
 
         // Change to 0o755
         let attr = fs.chmod(ino, 0o755).await.unwrap();
-        assert_eq!(attr.mode & 0o777, 0o755, "chmod should update permission bits");
+        assert_eq!(
+            attr.mode & 0o777,
+            0o755,
+            "chmod should update permission bits"
+        );
 
         // Verify stat also returns the new mode
         let stat = fs.stat("/chm/a.txt").await.unwrap();
