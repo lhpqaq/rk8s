@@ -215,8 +215,11 @@ pub async fn login_url(
         .ok_or_else(|| BusinessError::BadRequest("Next auth is not configured".to_string()))?;
 
     let base = next_auth_url.trim_end_matches('/');
-    let mut url = reqwest::Url::parse(&format!("{base}/auth/login"))
-        .map_err(|e| InternalError::Others(format!("Invalid NEXT_AUTH_URL: {e}")))?;
+    let mut url = reqwest::Url::parse(&format!("{base}/auth/login")).map_err(|e| {
+        InternalError::Others(format!(
+            "Failed to construct login URL from NEXT_AUTH_URL: {e}"
+        ))
+    })?;
     url.query_pairs_mut()
         .append_pair("callback_url", &params.callback_url);
 

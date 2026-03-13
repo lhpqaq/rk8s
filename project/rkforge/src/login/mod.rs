@@ -136,7 +136,9 @@ async fn try_next_login(
 
     // Wait for the callback with a 5-minute timeout.
     let server_handle = tokio::spawn(async move {
-        let _ = axum::serve(listener, app).await;
+        if let Err(e) = axum::serve(listener, app).await {
+            tracing::warn!("Callback server error: {e}");
+        }
     });
 
     let timed_out = tokio::select! {
@@ -158,6 +160,9 @@ async fn try_next_login(
         .ok_or_else(|| anyhow::anyhow!("No token received"))
 }
 
+/// Try to open a URL in the system browser.
+/// Failures are intentionally ignored because the URL is also printed
+/// to the terminal so the user can open it manually.
 fn try_open_browser(url: &str) {
     #[cfg(target_os = "linux")]
     {
