@@ -28,8 +28,10 @@ pub struct Config {
     pub jwt_secret: String,
     pub jwt_lifetime_secs: i64,
 
-    pub github_client_id: String,
-    pub github_client_secret: String,
+    pub github_client_id: Option<String>,
+    pub github_client_secret: Option<String>,
+
+    pub next_auth_url: Option<String>,
 
     pub s3_config: Option<S3Config>,
 }
@@ -138,8 +140,25 @@ pub async fn validate_config(args: &Args) -> Config {
     .unwrap();
     let jwt_lifetime_secs =
         must_set("JWT_LIFETIME_SECONDS", &mut validation_errors, Some(3600)).unwrap();
-    let github_client_id = must_set("GITHUB_CLIENT_ID", &mut validation_errors, None);
-    let github_client_secret = must_set("GITHUB_CLIENT_SECRET", &mut validation_errors, None);
+
+    // Use the parsed CLI argument (which also reads the env var via clap) so
+    // that `--next-auth-url` without the env var still skips GitHub credentials.
+    let has_next_auth = args
+        .next_auth_url
+        .as_ref()
+        .is_some_and(|s| !s.is_empty());
+
+    // GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are only required when NEXT_AUTH_URL is not set.
+    let (github_client_id, github_client_secret) = if has_next_auth {
+        (
+            std::env::var("GITHUB_CLIENT_ID").ok(),
+            std::env::var("GITHUB_CLIENT_SECRET").ok(),
+        )
+    } else {
+        let id = must_set("GITHUB_CLIENT_ID", &mut validation_errors, None);
+        let secret = must_set("GITHUB_CLIENT_SECRET", &mut validation_errors, None);
+        (id, secret)
+    };
 
     let db_url = match std::env::var("DATABASE_URL") {
         Ok(url) => url,
@@ -172,8 +191,9 @@ pub async fn validate_config(args: &Args) -> Config {
         db_url,
         jwt_secret,
         jwt_lifetime_secs,
-        github_client_id: github_client_id.unwrap(),
-        github_client_secret: github_client_secret.unwrap(),
+        github_client_id,
+        github_client_secret,
+        next_auth_url: args.next_auth_url.clone(),
         s3_config,
     }
 }
