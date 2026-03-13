@@ -1,6 +1,8 @@
 use crate::config::auth::AuthConfig;
 use crate::login::oauth::OAuthFlow;
-use crate::login::types::{CallbackResponse, LoginUrlResponse, NextCallbackQuery, RequestClientIdResponse};
+use crate::login::types::{
+    CallbackResponse, LoginUrlResponse, NextCallbackQuery, RequestClientIdResponse,
+};
 use crate::registry::{
     RegistryScheme, api_url, effective_skip_tls_verify, parse_registry_host_arg,
 };
@@ -113,25 +115,24 @@ async fn try_next_login(
     let ts = token_store.clone();
     let nt = notify.clone();
 
-    let app = axum::Router::new()
-        .route(
-            "/callback",
-            axum::routing::get(
-                move |axum::extract::Query(q): axum::extract::Query<NextCallbackQuery>| {
-                    let ts = ts.clone();
-                    let nt = nt.clone();
-                    async move {
-                        *ts.lock().await = Some(q.token);
-                        nt.notify_one();
-                        axum::response::Html(
-                            "<html><body><h1>Login successful!</h1>\
+    let app = axum::Router::new().route(
+        "/callback",
+        axum::routing::get(
+            move |axum::extract::Query(q): axum::extract::Query<NextCallbackQuery>| {
+                let ts = ts.clone();
+                let nt = nt.clone();
+                async move {
+                    *ts.lock().await = Some(q.token);
+                    nt.notify_one();
+                    axum::response::Html(
+                        "<html><body><h1>Login successful!</h1>\
                              <p>You can close this window and return to the terminal.</p>\
                              </body></html>",
-                        )
-                    }
-                },
-            ),
-        );
+                    )
+                }
+            },
+        ),
+    );
 
     // Wait for the callback with a 5-minute timeout.
     let server_handle = tokio::spawn(async move {

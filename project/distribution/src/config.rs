@@ -141,7 +141,9 @@ pub async fn validate_config(args: &Args) -> Config {
     let jwt_lifetime_secs =
         must_set("JWT_LIFETIME_SECONDS", &mut validation_errors, Some(3600)).unwrap();
 
-    let next_auth_url = std::env::var("NEXT_AUTH_URL").ok().filter(|s| !s.is_empty());
+    let next_auth_url = std::env::var("NEXT_AUTH_URL")
+        .ok()
+        .filter(|s| !s.is_empty());
 
     // GITHUB_CLIENT_ID and GITHUB_CLIENT_SECRET are only required when NEXT_AUTH_URL is not set.
     let (github_client_id, github_client_secret) = if next_auth_url.is_some() {

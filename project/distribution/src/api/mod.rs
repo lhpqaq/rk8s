@@ -148,13 +148,10 @@ pub(crate) async fn verify_token_with_next(
     }
 
     let user_info: NextAuthUserInfo =
-        response
-            .json()
-            .await
-            .map_err(|e| OciError::Unauthorized {
-                msg: format!("Invalid response from auth service: {e}"),
-                auth_url: None,
-            })?;
+        response.json().await.map_err(|e| OciError::Unauthorized {
+            msg: format!("Invalid response from auth service: {e}"),
+            auth_url: None,
+        })?;
 
     Ok(Claims {
         sub: user_info.username,
@@ -216,9 +213,7 @@ mod tests {
     async fn verify_token_with_next_success() {
         let mock_server = axum::Router::new().route(
             "/api/auth/verify",
-            axum::routing::get(|| async {
-                Json(serde_json::json!({ "username": "testuser" }))
-            }),
+            axum::routing::get(|| async { Json(serde_json::json!({ "username": "testuser" })) }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -240,9 +235,7 @@ mod tests {
     async fn verify_token_with_next_unauthorized() {
         let mock_server = axum::Router::new().route(
             "/api/auth/verify",
-            axum::routing::get(|| async {
-                (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized")
-            }),
+            axum::routing::get(|| async { (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized") }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -262,9 +255,7 @@ mod tests {
     async fn verify_token_with_next_trims_trailing_slash() {
         let mock_server = axum::Router::new().route(
             "/api/auth/verify",
-            axum::routing::get(|| async {
-                Json(serde_json::json!({ "username": "slashuser" }))
-            }),
+            axum::routing::get(|| async { Json(serde_json::json!({ "username": "slashuser" })) }),
         );
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let addr = listener.local_addr().unwrap();
@@ -273,8 +264,7 @@ mod tests {
         });
 
         let client = reqwest::Client::new();
-        let result =
-            verify_token_with_next(&client, &format!("http://{addr}/"), "token").await;
+        let result = verify_token_with_next(&client, &format!("http://{addr}/"), "token").await;
 
         let claims = result.unwrap();
         assert_eq!(claims.sub, "slashuser");

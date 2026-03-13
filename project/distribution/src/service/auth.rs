@@ -150,16 +150,14 @@ pub(crate) async fn auth(
                 // Verify the bearer token with the Next program.
                 let claims =
                     verify_token_with_next(&state.http_client, next_url, bearer.token()).await?;
-                let token = gen_token(
+                gen_token(
                     state.config.jwt_lifetime_secs,
                     &state.config.jwt_secret,
                     &claims.sub,
-                );
-                token
+                )
             } else {
                 // Fallback: treat as local JWT.
-                let claims =
-                    crate::utils::jwt::decode(&state.config.jwt_secret, bearer.token())?;
+                let claims = crate::utils::jwt::decode(&state.config.jwt_secret, bearer.token())?;
                 gen_token(
                     state.config.jwt_lifetime_secs,
                     &state.config.jwt_secret,
@@ -210,9 +208,11 @@ pub async fn login_url(
     State(state): State<Arc<AppState>>,
     Query(params): Query<LoginUrlQuery>,
 ) -> Result<impl IntoResponse, AppError> {
-    let next_auth_url = state.config.next_auth_url.as_deref().ok_or_else(|| {
-        BusinessError::BadRequest("Next auth is not configured".to_string())
-    })?;
+    let next_auth_url = state
+        .config
+        .next_auth_url
+        .as_deref()
+        .ok_or_else(|| BusinessError::BadRequest("Next auth is not configured".to_string()))?;
 
     let base = next_auth_url.trim_end_matches('/');
     let mut url = reqwest::Url::parse(&format!("{base}/auth/login"))
@@ -291,9 +291,6 @@ mod tests {
         let next_auth_url = "https://auth.example.com/";
         let base = next_auth_url.trim_end_matches('/');
         let url = reqwest::Url::parse(&format!("{base}/auth/login")).unwrap();
-        assert_eq!(
-            url.path(),
-            "/auth/login"
-        );
+        assert_eq!(url.path(), "/auth/login");
     }
 }
