@@ -32,6 +32,8 @@ pub async fn require_authentication(
         &state.config.jwt_secret,
         state.user_storage.as_ref(),
         &state.config.registry_url,
+        &state.http_client,
+        state.config.next_auth_url.as_deref(),
     )
     .await?;
     req.extensions_mut().insert(claims);
@@ -49,6 +51,8 @@ pub async fn populate_oci_claims(
         &state.config.jwt_secret,
         state.user_storage.as_ref(),
         &state.config.registry_url,
+        &state.http_client,
+        state.config.next_auth_url.as_deref(),
     )
     .await;
     match *req.method() {

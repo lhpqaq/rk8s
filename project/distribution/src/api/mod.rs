@@ -7,7 +7,7 @@ use crate::api::middleware::{
 use crate::api::v2::probe;
 use crate::domain::user::UserRepository;
 use crate::error::{AppError, OciError};
-use crate::service::auth::{auth, client_id, oauth_callback};
+use crate::service::auth::{auth, client_id, login_url, oauth_callback};
 use crate::service::repo::{change_visibility, list_visible_repos};
 use crate::utils::jwt::{Claims, decode};
 use crate::utils::password::check_password;
@@ -21,6 +21,7 @@ use axum::routing::{get, post, put};
 use axum_extra::TypedHeader;
 use axum_extra::headers::Authorization;
 use axum_extra::headers::authorization::{Basic, Bearer};
+use serde::Deserialize;
 use std::sync::Arc;
 
 pub fn create_router(state: Arc<AppState>) -> Router<()> {
@@ -48,6 +49,7 @@ fn custom_v1_router(state: Arc<AppState>) -> Router<Arc<AppState>> {
     Router::new()
         .route("/auth/{provider}/callback", post(oauth_callback))
         .route("/auth/{provider}/client_id", get(client_id))
+        .route("/auth/next/login_url", get(login_url))
         .merge(v1_router_with_auth(state))
 }
 
@@ -114,16 +116,77 @@ where
     }
 }
 
-async fn extract_claims(
+/// Response from the Next program's token verification endpoint.
+#[derive(Deserialize)]
+pub(crate) struct NextAuthUserInfo {
+    pub username: String,
+}
+
+/// Verify a Bearer token by calling the Next program's `/api/auth/verify` endpoint.
+pub(crate) async fn verify_token_with_next(
+    client: &reqwest::Client,
+    next_auth_url: &str,
+    token: &str,
+) -> Result<Claims, AppError> {
+    let url = format!("{}/api/auth/verify", next_auth_url.trim_end_matches('/'));
+    let response = client
+        .get(&url)
+        .header("Authorization", format!("Bearer {token}"))
+        .send()
+        .await
+        .map_err(|e| OciError::Unauthorized {
+            msg: format!("Failed to verify token with auth service: {e}"),
+            auth_url: None,
+        })?;
+
+    if !response.status().is_success() {
+        return Err(OciError::Unauthorized {
+            msg: "Token verification failed".to_string(),
+            auth_url: None,
+        }
+        .into());
+    }
+
+    let user_info: NextAuthUserInfo =
+        response.json().await.map_err(|e| OciError::Unauthorized {
+            msg: format!("Invalid response from auth service: {e}"),
+            auth_url: None,
+        })?;
+
+    Ok(Claims {
+        sub: user_info.username,
+        exp: 0,
+    })
+}
+
+pub(crate) async fn extract_claims(
     auth: Option<AuthHeader>,
     jwt_secret: impl AsRef<str>,
     user_storage: &dyn UserRepository,
     auth_url: impl AsRef<str>,
+    http_client: &reqwest::Client,
+    next_auth_url: Option<&str>,
 ) -> Result<Claims, AppError> {
     match auth {
         Some(auth) => match auth {
-            AuthHeader::Bearer(bearer) => decode(jwt_secret, bearer.token()),
+            AuthHeader::Bearer(bearer) => {
+                if let Some(next_url) = next_auth_url {
+                    // Delegate token verification to the Next program.
+                    verify_token_with_next(http_client, next_url, bearer.token()).await
+                } else {
+                    // Fallback: decode JWT locally.
+                    decode(jwt_secret, bearer.token())
+                }
+            }
             AuthHeader::Basic(basic) => {
+                if next_auth_url.is_some() {
+                    return Err(OciError::Unauthorized {
+                        msg: "Basic auth is not supported with delegated authentication"
+                            .to_string(),
+                        auth_url: Some(auth_url.as_ref().to_string()),
+                    }
+                    .into());
+                }
                 let user = user_storage.query_user_by_name(basic.username()).await?;
                 check_password(&user.salt, &user.password, basic.password())?;
                 Ok(Claims {
@@ -137,5 +200,73 @@ async fn extract_claims(
             auth_url: Some(auth_url.as_ref().to_string()),
         }
         .into()),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Test that verify_token_with_next successfully returns claims
+    /// when the Next program responds with valid user info.
+    #[tokio::test]
+    async fn verify_token_with_next_success() {
+        let mock_server = axum::Router::new().route(
+            "/api/auth/verify",
+            axum::routing::get(|| async { Json(serde_json::json!({ "username": "testuser" })) }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, mock_server).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let result =
+            verify_token_with_next(&client, &format!("http://{addr}"), "valid-token").await;
+
+        let claims = result.unwrap();
+        assert_eq!(claims.sub, "testuser");
+    }
+
+    /// Test that verify_token_with_next returns an error
+    /// when the Next program responds with 401.
+    #[tokio::test]
+    async fn verify_token_with_next_unauthorized() {
+        let mock_server = axum::Router::new().route(
+            "/api/auth/verify",
+            axum::routing::get(|| async { (axum::http::StatusCode::UNAUTHORIZED, "Unauthorized") }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, mock_server).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let result =
+            verify_token_with_next(&client, &format!("http://{addr}"), "invalid-token").await;
+
+        assert!(result.is_err());
+    }
+
+    /// Test that verify_token_with_next trims trailing slashes from the URL.
+    #[tokio::test]
+    async fn verify_token_with_next_trims_trailing_slash() {
+        let mock_server = axum::Router::new().route(
+            "/api/auth/verify",
+            axum::routing::get(|| async { Json(serde_json::json!({ "username": "slashuser" })) }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, mock_server).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let result = verify_token_with_next(&client, &format!("http://{addr}/"), "token").await;
+
+        let claims = result.unwrap();
+        assert_eq!(claims.sub, "slashuser");
     }
 }

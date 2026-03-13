@@ -1,14 +1,12 @@
+use crate::api::{AuthHeader, verify_token_with_next};
 use crate::domain::user::User;
 use crate::error::{AppError, BusinessError, InternalError, MapToAppError};
 use crate::utils::jwt::gen_token;
 use crate::utils::password::{check_password, gen_password, gen_salt, hash_password};
 use crate::utils::state::AppState;
 use axum::Json;
-use axum::extract::{Path, State};
+use axum::extract::{Path, Query, State};
 use axum::response::IntoResponse;
-use axum_extra::TypedHeader;
-use axum_extra::headers::Authorization;
-use axum_extra::headers::authorization::Basic;
 use chrono::Utc;
 use reqwest::StatusCode;
 use serde::{Deserialize, Serialize};
@@ -144,11 +142,31 @@ pub struct AuthResponse {
 
 pub(crate) async fn auth(
     State(state): State<Arc<AppState>>,
-    auth: Option<TypedHeader<Authorization<Basic>>>,
+    auth: Option<AuthHeader>,
 ) -> Result<impl IntoResponse, AppError> {
     let token = match auth {
-        Some(auth) => {
-            let username = auth.username();
+        Some(AuthHeader::Bearer(bearer)) => {
+            if let Some(next_url) = &state.config.next_auth_url {
+                // Verify the bearer token with the Next program.
+                let claims =
+                    verify_token_with_next(&state.http_client, next_url, bearer.token()).await?;
+                gen_token(
+                    state.config.jwt_lifetime_secs,
+                    &state.config.jwt_secret,
+                    &claims.sub,
+                )
+            } else {
+                // Fallback: treat as local JWT.
+                let claims = crate::utils::jwt::decode(&state.config.jwt_secret, bearer.token())?;
+                gen_token(
+                    state.config.jwt_lifetime_secs,
+                    &state.config.jwt_secret,
+                    &claims.sub,
+                )
+            }
+        }
+        Some(AuthHeader::Basic(basic_header)) => {
+            let username = basic_header.username();
             let user = state.user_storage.query_user_by_name(username).await?;
             let canonical_username = canonical_namespace(&user.username);
             let token = gen_token(
@@ -159,7 +177,7 @@ pub(crate) async fn auth(
             {
                 // Check password is a rather time-consuming operation. So it should be executed in `spawn_blocking`.
                 tokio::task::spawn_blocking(move || {
-                    check_password(&user.salt, &user.password, auth.password())
+                    check_password(&user.salt, &user.password, basic_header.password())
                 })
                 .await
                 .map_err(|e| InternalError::Others(e.to_string()))??;
@@ -178,6 +196,36 @@ pub(crate) async fn auth(
         expires_in: state.config.jwt_lifetime_secs,
         issued_at: Utc::now().to_rfc3339(),
     }))
+}
+
+#[derive(Deserialize)]
+pub struct LoginUrlQuery {
+    callback_url: String,
+}
+
+/// Returns the Next program's login URL for browser-based authentication.
+pub async fn login_url(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<LoginUrlQuery>,
+) -> Result<impl IntoResponse, AppError> {
+    let next_auth_url = state
+        .config
+        .next_auth_url
+        .as_deref()
+        .ok_or_else(|| BusinessError::BadRequest("Next auth is not configured".to_string()))?;
+
+    let base = next_auth_url.trim_end_matches('/');
+    let mut url = reqwest::Url::parse(&format!("{base}/auth/login")).map_err(|e| {
+        InternalError::Others(format!(
+            "Failed to construct login URL from NEXT_AUTH_URL: {e}"
+        ))
+    })?;
+    url.query_pairs_mut()
+        .append_pair("callback_url", &params.callback_url);
+
+    Ok(Json(json!({
+        "login_url": url.to_string(),
+    })))
 }
 
 pub async fn client_id(
@@ -223,5 +271,29 @@ mod tests {
     #[test]
     fn canonical_namespace_is_lowercase() {
         assert_eq!(canonical_namespace("LingBou"), "lingbou");
+    }
+
+    #[test]
+    fn login_url_constructs_correct_url() {
+        let next_auth_url = "https://auth.example.com";
+        let callback_url = "http://127.0.0.1:12345/callback";
+
+        let base = next_auth_url.trim_end_matches('/');
+        let mut url = reqwest::Url::parse(&format!("{base}/auth/login")).unwrap();
+        url.query_pairs_mut()
+            .append_pair("callback_url", callback_url);
+
+        let result = url.to_string();
+        assert!(result.starts_with("https://auth.example.com/auth/login?"));
+        assert!(result.contains("callback_url="));
+        assert!(result.contains("127.0.0.1"));
+    }
+
+    #[test]
+    fn login_url_trims_trailing_slash() {
+        let next_auth_url = "https://auth.example.com/";
+        let base = next_auth_url.trim_end_matches('/');
+        let url = reqwest::Url::parse(&format!("{base}/auth/login")).unwrap();
+        assert_eq!(url.path(), "/auth/login");
     }
 }
