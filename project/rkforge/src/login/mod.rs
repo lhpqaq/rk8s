@@ -134,14 +134,20 @@ async fn try_next_login(
         );
 
     // Wait for the callback with a 5-minute timeout.
-    tokio::select! {
-        _ = axum::serve(listener, app) => {
-            anyhow::bail!("Callback server exited unexpectedly")
-        }
-        _ = notify.notified() => {}
-        _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => {
-            anyhow::bail!("Login timed out after 5 minutes")
-        }
+    let server_handle = tokio::spawn(async move {
+        let _ = axum::serve(listener, app).await;
+    });
+
+    let timed_out = tokio::select! {
+        _ = notify.notified() => false,
+        _ = tokio::time::sleep(std::time::Duration::from_secs(300)) => true,
+    };
+
+    // Shut down the callback server.
+    server_handle.abort();
+
+    if timed_out {
+        anyhow::bail!("Login timed out after 5 minutes");
     }
 
     token_store
