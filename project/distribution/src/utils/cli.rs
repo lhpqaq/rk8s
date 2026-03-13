@@ -80,4 +80,9 @@ pub(crate) struct Args {
     /// Allow plain HTTP (only for dev/testing)
     #[arg(long, env = "OCI_REGISTRY_S3_ALLOW_HTTP", default_value_t = false)]
     pub(crate) s3_allow_http: bool,
+
+    /// Next.js auth program URL for delegated authentication.
+    /// When set, token verification is delegated to the Next program.
+    #[arg(long, env = "NEXT_AUTH_URL")]
+    pub(crate) next_auth_url: Option<String>,
 }

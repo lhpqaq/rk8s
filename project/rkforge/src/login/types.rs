@@ -48,3 +48,15 @@ pub enum PollTokenErrorKind {
 pub struct RequestClientIdResponse {
     pub client_id: String,
 }
+
+/// Response from the distribution's `/api/v1/auth/next/login_url` endpoint.
+#[derive(Deserialize)]
+pub struct LoginUrlResponse {
+    pub login_url: String,
+}
+
+/// Query parameters received by the local callback server after browser login.
+#[derive(Deserialize)]
+pub struct NextCallbackQuery {
+    pub token: String,
+}
