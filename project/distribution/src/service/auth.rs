@@ -150,10 +150,11 @@ pub(crate) async fn auth(
                 // Verify the bearer token with the Next program.
                 let claims =
                     verify_token_with_next(&state.http_client, next_url, bearer.token()).await?;
+                let canonical_username = canonical_namespace(&claims.sub);
                 gen_token(
                     state.config.jwt_lifetime_secs,
                     &state.config.jwt_secret,
-                    &claims.sub,
+                    &canonical_username,
                 )
             } else {
                 // Fallback: treat as local JWT.

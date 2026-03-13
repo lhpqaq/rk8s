@@ -154,7 +154,7 @@ pub(crate) async fn verify_token_with_next(
         })?;
 
     Ok(Claims {
-        sub: user_info.username,
+        sub: user_info.username.to_ascii_lowercase(),
         exp: 0,
     })
 }
@@ -171,8 +171,16 @@ pub(crate) async fn extract_claims(
         Some(auth) => match auth {
             AuthHeader::Bearer(bearer) => {
                 if let Some(next_url) = next_auth_url {
-                    // Delegate token verification to the Next program.
-                    verify_token_with_next(http_client, next_url, bearer.token()).await
+                    // In delegated mode, try decoding as a distribution-issued JWT
+                    // first (issued by /auth/token). Only delegate to Next when the
+                    // local decode fails, so the standard OCI token-exchange path
+                    // (/v2 challenge → /auth/token → /v2/* with JWT) keeps working.
+                    match decode(&jwt_secret, bearer.token()) {
+                        Ok(claims) => Ok(claims),
+                        Err(_) => {
+                            verify_token_with_next(http_client, next_url, bearer.token()).await
+                        }
+                    }
                 } else {
                     // Fallback: decode JWT locally.
                     decode(jwt_secret, bearer.token())
@@ -268,5 +276,81 @@ mod tests {
 
         let claims = result.unwrap();
         assert_eq!(claims.sub, "slashuser");
+    }
+
+    /// Test that verify_token_with_next canonicalizes (lowercases) the username.
+    #[tokio::test]
+    async fn verify_token_with_next_canonicalizes_username() {
+        let mock_server = axum::Router::new().route(
+            "/api/auth/verify",
+            axum::routing::get(|| async { Json(serde_json::json!({ "username": "MixedCase" })) }),
+        );
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        tokio::spawn(async move {
+            axum::serve(listener, mock_server).await.unwrap();
+        });
+
+        let client = reqwest::Client::new();
+        let result =
+            verify_token_with_next(&client, &format!("http://{addr}"), "valid-token").await;
+
+        let claims = result.unwrap();
+        assert_eq!(claims.sub, "mixedcase");
+    }
+
+    /// Test that extract_claims in delegated mode decodes distribution-issued
+    /// JWTs locally instead of forwarding them to the Next program.
+    #[tokio::test]
+    async fn extract_claims_prefers_local_jwt_in_delegated_mode() {
+        use crate::utils::jwt::gen_token;
+
+        let secret = "test-secret";
+        // Issue a distribution JWT
+        let jwt = gen_token(3600, secret, "localuser");
+
+        let bearer = TypedHeader(Authorization::bearer(&jwt).unwrap());
+        let auth_header = Some(AuthHeader::Bearer(bearer));
+
+        // Create a stub UserRepository that is never called in the Bearer path.
+        struct StubUserRepo;
+        #[async_trait::async_trait]
+        impl crate::domain::user::UserRepository for StubUserRepo {
+            async fn query_user_by_name(
+                &self,
+                _: &str,
+            ) -> std::result::Result<crate::domain::user::User, crate::error::AppError> {
+                unimplemented!()
+            }
+            async fn query_user_by_github_id(
+                &self,
+                _: i64,
+            ) -> std::result::Result<crate::domain::user::User, crate::error::AppError> {
+                unimplemented!()
+            }
+            async fn create_user(
+                &self,
+                _: crate::domain::user::User,
+            ) -> std::result::Result<(), crate::error::AppError> {
+                unimplemented!()
+            }
+        }
+
+        let client = reqwest::Client::new();
+
+        // next_auth_url is set, but the JWT was issued by distribution.
+        // extract_claims should decode it locally without contacting Next.
+        let claims = extract_claims(
+            auth_header,
+            secret,
+            &StubUserRepo,
+            "http://registry",
+            &client,
+            Some("http://next-that-does-not-exist:9999"),
+        )
+        .await
+        .expect("should decode distribution JWT locally");
+
+        assert_eq!(claims.sub, "localuser");
     }
 }
